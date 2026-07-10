@@ -1,0 +1,1 @@
+"Select and execute the following expression to load new fonts and create a large text style.""Pellucida Sans-Serif 18 and 24"StyleManager	styleName: 'Pellucida Sans-Serif 18 and 24'	baseNames: #('PellucidaSans-Serif18' 'PellucidaSans-Serif24')	lead: 3.

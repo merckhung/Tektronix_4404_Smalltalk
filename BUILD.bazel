@@ -1,0 +1,38 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+
+cc_library(
+    name = "smalltalk_lib",
+    defines = ["GC_MARK_SWEEP"],
+    srcs = [
+        "src/bitblt.cpp",
+        "src/interpreter.cpp",
+        "src/objmemory.cpp",
+    ],
+    hdrs = [
+        "src/bitblt.h",
+        "src/filesystem.h",
+        "src/hal.h",
+        "src/interpreter.h",
+        "src/objmemory.h",
+        "src/oops.h",
+        "src/posixfilesystem.h",
+        "src/realwordmemory.h",
+    ],
+    includes = ["src"],
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "smalltalk_tek",
+    srcs = ["main_sdl.cpp"],
+    copts = [
+        "-std=c++17",
+        "-I/usr/include/SDL2",
+    ],
+    deps = [
+        ":smalltalk_lib",
+    ],
+    linkopts = [
+        "-lSDL2",
+    ],
+)

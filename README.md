@@ -1,6 +1,18 @@
 ﻿# Smalltalk-80
 ![Screenshot](images/desktop.png)
 
+## Tektronix 4404 image
+
+In addition to the Xerox release image, this build boots the **Tektronix 4404**
+`standardImage` (Smalltalk-80 T2.1.3b). **The Tektronix image is the default.**
+It boots noticeably slower than the Xerox image — allow up to a minute to reach
+the desktop.
+
+![Tektronix 4404 boot](images/tektronix_boot.png)
+
+See [Building with Bazel](#building-with-bazel-tektronix-and-xerox) below for how
+to build and launch the Tektronix and Xerox images.
+
 Welcome to my "by the Bluebook" C++ implementation of the Smalltalk-80 system that runs on OS X, Windows, Linux, OpenBSD, and FreeBSD! Since first reading about Smalltalk in the August 1981 issue of Byte magazine, I have always been intrigued by it. At that time all we had were slow 8-bit computers with 4K of RAM barely running fast enough to do anything useful. I was stunned as I read through the article -- this was futuristic alien technology that was surely beyond my reach. In 1988, while attending the University of Washington,  I was exposed to two memorable pieces of technology: The first was Steve Job's NeXTCube and the other was a Tektronix 4404 workstation running Smalltalk-80. Both were, and still are, amazing. It was only fitting that I implemented this Smalltalk on a descendent of the NeXTCube -- a MacBook Pro laptop.
 
 In the late 90s, I discovered that my heroes from Xerox PARC got the "band back together" and released Squeak. I was thrilled to finally have a nice system to play with. But, I didn't care for the look and feel and missed the minimalism I had experienced on the Tektronix system. I also had a copy of the Bluebook and Greenbook and always daydreamed about making my own implementation, but I had no access to the porting kit that was used. That changed a few years ago when I found Mario Wolczko's website: [http://www.wolczko.com/st80/](http://www.wolczko.com/st80/)  He  had the Xerox release 2 virtual image (from magnetic tape) as well as the instruction manual and hand-typed smalltalk sources from the Bluebook!  He also had his implementation, which was written in pre-ANSI C. But, despite many hours, I was not able to get anything to run. I then started to consider making my own implementation.
@@ -34,6 +46,45 @@ The nice thing about building things by the book is there are books to document 
 Assignment in Smalltalk is made using the left-arrow which is written with `shift -`(`_`), the vertical-arrow is entered with `shift 6`(`^`).
 
 # Building and running
+
+# Building with Bazel (Tektronix and Xerox)
+
+This repository includes a [Bazel](https://bazel.build/) build with an SDL2 front
+end that boots **both** the Tektronix 4404 and the Xerox images. You need Bazel
+and the SDL2 development libraries installed (e.g. `sudo apt-get install libsdl2-dev`).
+
+Build the VM:
+
+```sh
+bazel build //:smalltalk_tek
+```
+
+Run it from the repository root (so it can find the images and source files):
+
+```sh
+# Tektronix 4404 image (default) -- allow up to a minute to reach the desktop
+./bazel-bin/smalltalk_tek
+
+# Xerox image
+./bazel-bin/smalltalk_tek -xerox
+```
+
+The images ship with the repository: the Tektronix image is `tektronix/standardImage`
+and the Xerox image is `files/snapshot.im`.
+
+Command-line options for the Bazel build:
+
+|   Option             | Meaning                                              |
+|----------------------|------------------------------------------------------|
+| `-tek`, `--tektronix`| Boot the Tektronix 4404 image (default).             |
+| `-xerox`, `--xerox`  | Boot the Xerox release image.                        |
+| `-image` _path_      | Load a snapshot from an explicit path.               |
+| `-three`             | Use the three-button mouse mapping.                  |
+| `-screenshot` _file_ | Periodically write a BMP screenshot to _file_.       |
+| `-exit-after` _ms_   | Exit after _ms_ milliseconds (useful for automation).|
+
+The mouse and keyboard work with both images; clicking the **Yellow** button
+(right button, or Ctrl+Left) over the desktop background raises the system menu.
 
 # OS X
 You will need to install SDL 2.0.12 or later. You can download it from http://libsdl.org. Choose the development library `.dmg` and install. Then, go into the osx folder and type:

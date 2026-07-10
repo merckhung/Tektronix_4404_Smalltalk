@@ -48,19 +48,270 @@ Interpreter::Interpreter(IHardwareAbstractionLayer *halInterface, IFileSystem *f
    memory(halInterface)
 #endif
 {
+    cycle_count = 0;
+    cycleTraceBuffer.resize(CYCLE_TRACE_BUFFER_SIZE);
 }
 
 bool Interpreter::init()
 {
     initializeMethodCache();
     semaphoreIndex = -1;
-    if (!memory.loadSnapshot(fileSystem, hal->get_image_name()))
+    memory.setImageType(hal->get_image_type());
+    if (!memory.loadSnapshot(fileSystem, hal->get_image_name())) {
+        std::cerr << "Failed to load snapshot: " << hal->get_image_name() << std::endl;
         return false;
-    /*
-     When Smalltalk is started up, the initial active context is found through the scheduler's active Process.
-     (G&R pg. 644)
-     */
-    activeContext = firstContext();
+    }
+
+    if (memory.getImageType() == ImageType::Tektronix) {
+#ifdef VM_DEBUG
+        printf("Scanning Squeak memory for SpecialOops...\n");
+#endif
+        for(int oop=0; oop<32768; oop+=2) {
+            if (!memory.hasObject(oop)) continue;
+            int cls = memory.fetchClassOf(oop);
+            // Squeak String is typically class 57
+            if (cls == 57) {
+                int sz = memory.fetchWordLengthOf(oop);
+                std::string s;
+                for(int i=0; i<sz; i++) {
+                    uint16_t w = memory.fetchWord_ofObject(i, oop);
+                    s += (char)(w>>8);
+                    s += (char)(w&0xFF);
+                }
+#ifdef VM_DEBUG
+                if (s.find("UndefinedObject") != std::string::npos ||
+                    s.find("True") != std::string::npos ||
+                    s.find("False") != std::string::npos ||
+                    s.find("Processor") != std::string::npos) {
+                    printf("Found interesting String at OOP %d: %s\n", oop, s.c_str());
+                }
+#endif
+            }
+        }
+    }
+
+    if (hal->get_image_type() == ImageType::Tektronix) {
+#ifdef VM_DEBUG
+        printf("Calibrating for Tektronix image...\n");
+        for (int i=2; i<=64; i+=2) {
+            if (memory.hasObject(i)) {
+                int cls = memory.fetchClassOf(i);
+                int len = memory.fetchWordLengthOf(cls);
+                std::string clsName = "unknown";
+                if (len >= 7) {
+                    int nameOop = memory.fetchPointer_ofObject(6, cls);
+                    int sz = memory.fetchByteLengthOf(nameOop);
+                    if (sz > 0 && sz < 100) {
+                        clsName = "";
+                        for(int j=0; j<sz; j++) {
+                            clsName += (char)memory.fetchByte_ofObject(j, nameOop);
+                        }
+                    }
+                }
+                printf("Oop %d: class %d (%s), len %d\n", i, cls, clsName.c_str(), memory.fetchWordLengthOf(i));
+            }
+        }
+#endif
+
+        int processorSymbol = 0;
+        int undefinedObjectSymbol = 0;
+        int trueSymbol = 0;
+        int falseSymbol = 0;
+        for (int oop=2; oop<65536; oop+=2) {
+            if (!memory.hasObject(oop)) continue;
+            int sz = memory.fetchByteLengthOf(oop);
+            if (sz > 0 && sz < 100) {
+                std::string s;
+                bool isPrintable = true;
+                for(int j=0; j<sz; j++) {
+                    char c = (char)memory.fetchByte_ofObject(j, oop);
+                    s += c;
+                    if (c < 32 || c > 126) isPrintable = false;
+                }
+                if (isPrintable && s.length() >= 4) {
+                    // Let's print any string >= 4 chars to see what they look like
+                    // printf("String Oop %d: '%s'\n", oop, s.c_str());
+                }
+                if (s == "Processor") processorSymbol = oop;
+                if (s == "UndefinedObject") undefinedObjectSymbol = oop;
+                if (s == "True") trueSymbol = oop;
+                if (s == "False") falseSymbol = oop;
+            }
+        }
+        
+        // Find Classes (Two-Pass Calibration)
+        int ClassMetaclassPointer = 0;
+        // Pass 1: Find Metaclass OOP
+        for (int oop=2; oop<65536; oop+=2) {
+            if (!memory.hasObject(oop)) continue;
+            int len = memory.fetchWordLengthOf(oop);
+            if (len >= 7) {
+                int nameOop = memory.fetchPointer_ofObject(6, oop);
+                if (nameOop >= 2 && nameOop < 65536 && memory.hasObject(nameOop)) {
+                    int sz = memory.fetchByteLengthOf(nameOop);
+                    if (sz > 0 && sz < 100) {
+                        std::string s;
+                        for(int j=0; j<sz; j++) s += (char)memory.fetchByte_ofObject(j, nameOop);
+                        if (s == "Metaclass") {
+                            ClassMetaclassPointer = oop;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+#ifdef VM_DEBUG
+        printf("Calibrated ClassMetaclassPointer = %d\n", ClassMetaclassPointer);
+#endif
+
+        int undefinedObjectClass = 0;
+        int trueClass = 0;
+        int falseClass = 0;
+        
+        if (ClassMetaclassPointer != 0) {
+            for (int oop=2; oop<65536; oop+=2) {
+                if (!memory.hasObject(oop)) continue;
+                int len = memory.fetchWordLengthOf(oop);
+                if (len >= 7) {
+                    int nameOop = memory.fetchPointer_ofObject(6, oop);
+                    if (nameOop >= 2 && nameOop < 65536 && memory.hasObject(nameOop)) {
+                        int sz = memory.fetchByteLengthOf(nameOop);
+                        if (sz > 0 && sz < 100) {
+                            std::string s;
+                            for(int j=0; j<sz; j++) s += (char)memory.fetchByte_ofObject(j, nameOop);
+                            
+                            int cls = memory.fetchClassOf(oop);
+                            int metacls = memory.fetchClassOf(cls);
+                            if (metacls == ClassMetaclassPointer) {
+#ifdef VM_DEBUG
+                                printf("FOUND REAL CLASS: '%s' at OOP %d\n", s.c_str(), oop);
+#endif
+                                
+                                if (s == "UndefinedObject") { undefinedObjectClass = oop; ClassUndefinedObject = oop; }
+                                if (s == "True") trueClass = oop;
+                                if (s == "False") falseClass = oop;
+                                
+                                if (s == "String") ClassStringPointer = oop;
+                                if (s == "Array") ClassArrayPointer = oop;
+                                if (s == "MethodContext") ClassMethodContextPointer = oop;
+                                if (s == "BlockContext") ClassBlockContextPointer = oop;
+                                if (s == "Point") ClassPointPointer = oop;
+                                if (s == "LargePositiveInteger") ClassLargePositiveIntegerPointer = oop;
+                                if (s == "Message") ClassMessagePointer = oop;
+                                if (s == "CompiledMethod") ClassCompiledMethod = oop;
+                                if (s == "Character") ClassCharacterPointer = oop;
+                                if (s == "Symbol") ClassSymbolPointer = oop;
+                                if (s == "Float") ClassFloatPointer = oop;
+                                if (s == "Semaphore") ClassSemaphorePointer = oop;
+                                if (s == "DisplayScreen") ClassDisplayScreenPointer = oop;
+                                if (s == "SmallInteger") ClassSmallInteger = oop;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+#ifdef VM_DEBUG
+        printf("UndefinedObjectClass = %d, TrueClass = %d, FalseClass = %d\n", undefinedObjectClass, trueClass, falseClass);
+        printf("Calibrated ClassSmallInteger = %d\n", ClassSmallInteger);
+#endif
+        (void)undefinedObjectClass; (void)trueClass; (void)falseClass;
+        memory.ClassSmallInteger = ClassSmallInteger;
+        // The GC marks CompiledMethod literals specially, so it needs the
+        // calibrated class oop (the default is the Xerox image value).
+        memory.ClassCompiledMethod = ClassCompiledMethod;
+
+        // The Smalltalk SystemDictionary instance in the Tektronix standardImage.
+        // It is the GC root that keeps all globals (classes, Display, Processor...)
+        // alive. The default value is only correct for the Xerox image.
+        SmalltalkPointer = 32288;
+#ifdef VM_DEBUG
+        printf("SmalltalkPointer = %d (class %d, len %d)\n", SmalltalkPointer,
+               memory.fetchClassOf(SmalltalkPointer), memory.fetchWordLengthOf(SmalltalkPointer));
+#endif
+        
+        // Do not override NilPointer, TruePointer, FalsePointer for Tektronix!
+#ifdef VM_DEBUG
+        printf("NilPointer = %d, TruePointer = %d, FalsePointer = %d\n", NilPointer, TruePointer, FalsePointer);
+
+        printf("Debug Oop 5946: hasObject=%d, byteLen=%d\n", memory.hasObject(5946), memory.hasObject(5946) ? memory.fetchByteLengthOf(5946) : -1);
+
+        if (memory.hasObject(48)) {
+            int len = memory.fetchWordLengthOf(48);
+            printf("Oop 48: Class=%d, Length=%d\n", memory.fetchClassOf(48), len);
+            for (int i=0; i<len; i++) {
+                printf("  Oop 48 field %d: %d\n", i, memory.fetchPointer_ofObject(i, 48));
+            }
+        } else {
+            printf("Oop 48 not found in memory\n");
+        }
+#endif
+
+        SchedulerAssociationPointer = 8;
+#ifdef VM_DEBUG
+        printf("SchedulerAssociationPointer = %d (class %d, len %d)\n", SchedulerAssociationPointer, memory.fetchClassOf(SchedulerAssociationPointer), memory.fetchWordLengthOf(SchedulerAssociationPointer));
+        printf("Class 6578 = %d (class %d, len %d)\n", 6578, memory.fetchClassOf(6578), memory.fetchWordLengthOf(6578));
+#endif
+
+        NilPointer = 2;
+        FalsePointer = 4;
+        TruePointer = 6;
+        
+        memory.NilPointer = NilPointer;
+        memory.FalsePointer = FalsePointer;
+        memory.TruePointer = TruePointer;
+        memory.SchedulerAssociationPointer = SchedulerAssociationPointer;
+        
+        int sch = memory.fetchPointer_ofObject(1, SchedulerAssociationPointer); // ValueIndex=1
+        int proc = memory.fetchPointer_ofObject(1, sch); // ActiveProcessIndex=1
+        activeContext = memory.fetchPointer_ofObject(1, proc); // SuspendedContextIndex=1
+        
+#ifdef VM_DEBUG
+        printf("sch = %d (class %d, len %d)\n", sch, memory.fetchClassOf(sch), memory.fetchWordLengthOf(sch));
+        printf("proc = %d (class %d, len %d)\n", proc, memory.fetchClassOf(proc), memory.fetchWordLengthOf(proc));
+        printf("activeContext = %d (class %d, len %d)\n", activeContext, memory.fetchClassOf(activeContext), memory.fetchWordLengthOf(activeContext));
+
+        std::cerr << "Extracted activeContext = " << activeContext << std::endl;
+#endif
+
+    } else {
+        // Canonical Blue Book "known object" oops for the Xerox image
+        // (oop = index * 2). These match interpreter.h's defaults.
+        NilPointer = 2;
+        FalsePointer = 4;
+        TruePointer = 6;
+        SchedulerAssociationPointer = 8;
+
+        memory.NilPointer = NilPointer;
+        memory.FalsePointer = FalsePointer;
+        memory.TruePointer = TruePointer;
+        memory.SchedulerAssociationPointer = SchedulerAssociationPointer;
+        // fetchClassOf() uses memory.ClassSmallInteger for tagged integers.
+        // The Tektronix path calibrates this; the Xerox image uses the Blue
+        // Book value 12 (interpreter.h's default). Without this it stays at the
+        // placeholder and the first SmallInteger method lookup corrupts.
+        ClassSmallInteger = 12;
+        memory.ClassSmallInteger = ClassSmallInteger;
+        // The GC marks CompiledMethod literals specially by comparing an
+        // object's class to memory.ClassCompiledMethod. The Xerox image's
+        // CompiledMethod class is oop 34 (Blue Book); leaving the placeholder
+        // makes the collector sweep live method literals whose oops are then
+        // reused, corrupting execution after the first GC.
+        ClassCompiledMethod = 34;
+        memory.ClassCompiledMethod = ClassCompiledMethod;
+
+        int sch = memory.fetchPointer_ofObject(ValueIndex, SchedulerAssociationPointer);
+        int proc = memory.fetchPointer_ofObject(ActiveProcessIndex, sch);
+        activeContext = memory.fetchPointer_ofObject(SuspendedContextIndex, proc);
+    }
+    
+    if (activeContext == NilPointer) {
+        std::cerr << "activeContext is NilPointer" << std::endl;
+        return false;
+    }
+#ifdef VM_DEBUG
+    std::cerr << "Found activeContext: " << activeContext << " (0x" << std::hex << activeContext << std::dec << ")" << std::endl;
+#endif
     memory.increaseReferencesTo(activeContext);
     fetchContextRegisters();
     checkLowMemory = false;
@@ -86,12 +337,26 @@ void Interpreter::prepareForCollection()
 {
     storeContextRegisters();
     memory.addRoot(SmalltalkPointer);
+    memory.addRoot(SchedulerAssociationPointer);
     memory.addRoot(activeContext);
     if (newProcess != NilPointer)
     {
         memory.addRoot(newProcess);
     }
-    
+    // Objects referenced only from VM registers
+    if (currentDisplay != 0)
+        memory.addRoot(currentDisplay);
+    if (currentCursor != 0)
+        memory.addRoot(currentCursor);
+    if (newMethod != 0 && newMethod != NilPointer)
+        memory.addRoot(newMethod);
+    if (messageSelector != 0 && messageSelector != NilPointer)
+        memory.addRoot(messageSelector);
+    // Semaphores buffered for asynchronous signaling
+    for (int i = 0; i <= semaphoreIndex; i++)
+    {
+        memory.addRoot(semaphoreList[i]);
+    }
 }
 void Interpreter::collectionCompleted()
 {
@@ -101,6 +366,9 @@ void Interpreter::collectionCompleted()
     {
         memory.increaseReferencesTo(newProcess);
     }
+    // Freed oops may be reused; cached (selector, class) -> method entries
+    // would otherwise match unrelated new objects.
+    initializeMethodCache();
 }
 #endif
 
@@ -695,16 +963,15 @@ void Interpreter::storeContextRegisters()
 bool Interpreter::isBlockContext(int contextPointer)
 {
    int methodOrArguments;
-
-   /* "source"
-   	methodOrArguments <- memory fetchPointer: MethodIndex
-   				ofObject: contextPointer.
-   	^memory isIntegerObject: methodOrArguments
-   */
-    methodOrArguments = memory.fetchPointer_ofObject(MethodIndex,
-                                    contextPointer);
-    return memory.isIntegerObject(methodOrArguments);
-
+   methodOrArguments = memory.fetchPointer_ofObject(MethodIndex,
+                                   contextPointer);
+   bool res = memory.isIntegerObject(methodOrArguments);
+#ifdef VM_DEBUG
+   if (contextPointer == 65660) {
+       std::cerr << "DEBUG isBlockContext(65660): methodOrArguments=" << methodOrArguments << " isInteger=" << res << std::endl;
+   }
+#endif
+   return res;
 }
 
 // newActiveContext:
@@ -754,6 +1021,18 @@ void Interpreter::fetchContextRegisters()
     method = memory.fetchPointer_ofObject(MethodIndex, homeContext);
     instructionPointer = instructionPointerOfContext(activeContext) - 1;
     stackPointer = stackPointerOfContext(activeContext) + TempFrameStart - 1;
+
+#ifdef VM_DEBUG
+    if (activeContext == 65660 || method == 65618 || method == 35122) {
+        std::cerr << "DEBUG fetchContextRegisters: activeContext=" << activeContext
+                  << " isBlock=" << isBlockContext(activeContext)
+                  << " homeContext=" << homeContext
+                  << " method=" << method
+                  << " IP=" << instructionPointer
+                  << " SP=" << stackPointer
+                  << std::endl;
+    }
+#endif
 }
 
 // dispatchInputOutputPrimitives
@@ -900,16 +1179,31 @@ int Interpreter::getDisplayBits(int width, int height)
 {
     // Return oop of display bits object
     // sanity checking display width/height
-    if (currentDisplay == 0) return 0; // No display yet
+    if (currentDisplay == 0) {
+        // static bool warned_null = false;
+        // if (!warned_null) { std::cerr << "getDisplayBits: currentDisplay is 0" << std::endl; warned_null = true; }
+        return 0;
+    }
     int displayBits =  memory.fetchPointer_ofObject(BitsInForm, currentDisplay);
     int computedSize = currentDisplayHeight * ((currentDisplayWidth + 15)/16);
     int actualSize = memory.fetchWordLengthOf(displayBits);
-    // The sizes do not match...
-    // Smalltalk shrinks the display bitmap to a height of 100 behind our back
-    // when saving for example.
-    if (computedSize != actualSize)
+    if (computedSize != actualSize) {
+        static int last_computed = 0;
+        static int last_actual = 0;
+        if (computedSize != last_computed || actualSize != last_actual) {
+            std::cerr << "getDisplayBits: size mismatch! computed=" << computedSize << " actual=" << actualSize 
+                      << " (w=" << currentDisplayWidth << " h=" << currentDisplayHeight << ")"
+                      << " displayBitsOOP=" << displayBits << " class=" << memory.fetchClassOf(displayBits)
+                      << std::endl;
+            last_computed = computedSize;
+            last_actual = actualSize;
+        }
+
         return 0;
-    return displayBits; // ok then...
+    }
+
+    return displayBits;
+
 }
 
 void Interpreter::updateDisplay(int destForm, int updatedX, int updatedY, int updatedWidth, int updatedHeight)
@@ -933,7 +1227,14 @@ void Interpreter::updateDisplay(int destForm, int updatedX, int updatedY, int up
 
 void Interpreter::primitiveCopyBits()
 {
-    
+#ifdef VM_DEBUG
+    static int copy_bits_count = 0;
+    if (++copy_bits_count % 1000 == 0) {
+         fprintf(stderr, "CopyBits called (count: %d)\n", copy_bits_count);
+         fflush(stderr);
+    }
+#endif
+
     int bitBltPointer = stackTop();
     int destForm = memory.fetchPointer_ofObject(DestFormIndex, bitBltPointer);
     int sourceForm = memory.fetchPointer_ofObject(SourceFormIndex, bitBltPointer);
@@ -973,10 +1274,19 @@ void Interpreter::primitiveCopyBits()
         if (destForm == currentDisplay)
         {
             bitBlt.getUpdatedBounds(&updatedX, &updatedY, &updatedWidth, &updatedHeight);
+#ifdef VM_DEBUG
+            int db = memory.fetchPointer_ofObject(0, destForm);
+            std::cerr << "primitiveCopyBits display update: destForm=" << destForm
+                      << " destBits=" << db
+                      << " w=" << width << " h=" << height
+                      << " updatedW=" << updatedWidth << " updatedH=" << updatedHeight << std::endl;
+#endif
             if (updatedWidth > 0 && updatedHeight > 0)
                 updateDisplay(destForm,  updatedX, updatedY, updatedWidth, updatedHeight);
-                
         }
+
+
+
     }
 }
 
@@ -1368,7 +1678,16 @@ bool Interpreter::lookupMethodInClass(int cls)
    int currentClass;
    int dictionary;
 
+#ifdef VM_DEBUG
+   static int lookup_count = 0;
+   if (++lookup_count % 1000 == 0) {
+        fprintf(stderr, "Lookup selector %d in class %d (count: %d)\n", messageSelector, cls, lookup_count);
+        fflush(stderr);
+   }
+#endif
+
    /* "source"
+
    	currentClass <- class.
    	[currentClass~=NilPointer] whileTrue:
    		[dictionary <- memory fetchPointer: MessageDictionaryIndex
@@ -1387,11 +1706,26 @@ bool Interpreter::lookupMethodInClass(int cls)
     while (currentClass != NilPointer)
     {
         dictionary = memory.fetchPointer_ofObject(MessageDictionaryIndex, currentClass);
-        if (lookupMethodInDictionary(dictionary)) return true;
+        if (lookupMethodInDictionary(dictionary)) {
+#ifdef VM_DEBUG
+            if (messageSelector == 1852) {
+                fprintf(stderr, "DEBUG lookup initState: found method=%d\n", newMethod);
+                fflush(stderr);
+            }
+#endif
+            return true;
+        }
         currentClass = superclassOf(currentClass);
     }
     if (messageSelector == DoesNotUnderstandSelector)
         error("Recursive not understood error encountered'");
+    fprintf(stderr, "DNU: sel=%d (%s) in class=%d (%s)\n", messageSelector, selectorName(messageSelector).c_str(), cls, className(cls).c_str());
+    fflush(stderr);
+    if (messageSelector == 1494) {
+        fprintf(stderr, "INTERCEPT: origin:corner: DNU!\n");
+        printStackTrace();
+        hal->error("origin:corner: DNU intercepted");
+    }
     createActualMessage();
     messageSelector = DoesNotUnderstandSelector;
     return lookupMethodInClass(cls);
@@ -1461,8 +1795,25 @@ void Interpreter::returnToActiveContext(int aContext)
        self fetchContextRegisters
    */
     
+#ifdef VM_DEBUG
+    if (memory.fetchClassOf(activeContext) == ClassMethodContextPointer) {
+        int meth = memory.fetchPointer_ofObject(MethodIndex, activeContext);
+        if (meth == 30604) {
+            int rcvr = memory.fetchPointer_ofObject(ReceiverIndex, activeContext);
+            fprintf(stderr, "DEBUG initState AFTER: recv=%d class=%d\n", rcvr, memory.fetchClassOf(rcvr));
+            int len = memory.fetchWordLengthOf(rcvr);
+            for (int i=0; i<len; i++) {
+                int val = memory.fetchPointer_ofObject(i, rcvr);
+                fprintf(stderr, "  field %d = %d (class %d)\n", i, val, memory.fetchClassOf(val));
+            }
+            fflush(stderr);
+        }
+    }
+#endif
+    // fprintf(stderr, "returnToActiveContext: destContext=%d activeContext=%d\n", aContext, activeContext);
     memory.increaseReferencesTo(aContext);
     nilContextFields();
+    recycleMethodContext(activeContext);
     memory.decreaseReferencesTo(activeContext);
     activeContext = aContext;
     fetchContextRegisters();
@@ -1472,7 +1823,8 @@ void Interpreter::returnToActiveContext(int aContext)
 // returnValue:to:
 void Interpreter::returnValue_to(int resultPointer, int contextPointer)
 {
-   int sendersIP;
+    // fprintf(stderr, "returnValue_to: result=%d destContext=%d activeContext=%d\n", resultPointer, contextPointer, activeContext);
+    int sendersIP;
 
    /* "source"
    	contextPointer = NilPointer
@@ -1593,6 +1945,7 @@ void Interpreter::primitiveBlockCopy()
     else
         methodContext = context;
     contextSize = memory.fetchWordLengthOf(methodContext);
+    contextsWithBlocks.insert(methodContext);
     newContext  = memory.instantiateClass_withPointers(ClassBlockContextPointer, contextSize);
     initialIP   = memory.integerObjectOf(instructionPointer + 3);
     memory.storePointer_ofObject_withValue(InitialIPIndex, newContext, initialIP);
@@ -2001,24 +2354,6 @@ void Interpreter::suspendActive()
 }
 
 
-// activeProcess
-int Interpreter::activeProcess()
-{
-   /* "source"
-   	newProcessWaiting
-   		ifTrue: [^newProcess]
-   		ifFalse: [^memory fetchPointer: ActiveProcessIndex
-   				ofObject: self schedulerPointer]
-   */
-    
-    if (newProcessWaiting)
-    {
-        return newProcess;
-    }
-    
-    return memory.fetchPointer_ofObject(ActiveProcessIndex, schedulerPointer());
-}
-
 
 // dispatchControlPrimitives
 void Interpreter::dispatchControlPrimitives()
@@ -2228,18 +2563,16 @@ void Interpreter::primitiveValue()
 // firstContext
 int Interpreter::firstContext()
 {
-   /* "source"
-   	newProcessWaiting <- false.
-    newProcess <- nil. "dbanay: need to initialize"
-   	^memory fetchPointer: SuspendedContextIndex
-   		ofObject: self activeProcess
-   */
-    
     newProcessWaiting = false;
     newProcess = NilPointer;
-    return memory.fetchPointer_ofObject(SuspendedContextIndex, activeProcess());
+    int proc = activeProcess();
+    int res = memory.fetchPointer_ofObject(SuspendedContextIndex, proc);
+#ifdef VM_DEBUG
+    fprintf(stderr, "firstContext: activeProcess=%d\n", proc); fflush(stderr);
+    fprintf(stderr, "firstContext: returning %d\n", res); fflush(stderr);
+#endif
+    return res;
 }
-
 
 // asynchronousSignal:
 void Interpreter::asynchronousSignal(int aSemaphore)
@@ -2503,9 +2836,20 @@ void Interpreter::dispatchPrivatePrimitives()
         case 133: // Posix error string
             primitivePosixErrorStringOperation();
             break;
+        case 134:
+        case 135:
+            primitiveTekSystemCall();
+            break;
+        case 144:
+            primitiveMemoryAt();
+            break;
+        case 145:
+            primitiveMemoryAtPut();
+            break;
         default:
             primitiveFail();
             break;
+
     }
 }
 
@@ -2534,6 +2878,64 @@ void Interpreter::primitivePosixErrorStringOperation()
     else
         unPop(2);
 }
+
+void Interpreter::primitiveTekSystemCall()
+{
+    int receiver = stackValue(argumentCount);
+    int zeroVal = memory.integerObjectOf(0);
+    
+    // Set output registers to 0
+    memory.storePointer_ofObject_withValue(3, receiver, zeroVal); // D0Out
+    memory.storePointer_ofObject_withValue(5, receiver, zeroVal); // D1Out
+    memory.storePointer_ofObject_withValue(8, receiver, zeroVal); // A1Out
+    memory.storePointer_ofObject_withValue(9, receiver, zeroVal); // errno
+
+    pop(argumentCount + 1);
+    push(TruePointer);
+}
+
+void Interpreter::primitiveMemoryAt()
+{
+    int address = popInteger();
+    pop(1); // pop receiver
+    if (success())
+    {
+#ifdef VM_DEBUG
+        if (hal->get_image_type() == ImageType::Tektronix) {
+            fprintf(stderr, "DEBUG primitiveMemoryAt: address=0x%x\n", address);
+            fflush(stderr);
+        }
+#endif
+        pushInteger(0);
+    }
+    else
+    {
+        unPop(2);
+    }
+}
+
+void Interpreter::primitiveMemoryAtPut()
+{
+    int value = popInteger();
+    int address = popInteger();
+    pop(1); // pop receiver
+    if (success())
+    {
+#ifdef VM_DEBUG
+        if (hal->get_image_type() == ImageType::Tektronix) {
+            fprintf(stderr, "DEBUG primitiveMemoryAtPut: address=0x%x val=0x%x\n", address, value);
+            fflush(stderr);
+        }
+#endif
+        pushInteger(value);
+    }
+    else
+    {
+        unPop(3);
+    }
+}
+
+
 
 void Interpreter::primitivePosixFileOperation()
 {
@@ -2905,6 +3307,13 @@ std::uint32_t Interpreter::positive32BitValueOf(int integerPointer)
 // primitiveResponse
 bool Interpreter::primitiveResponse()
 {
+#ifdef VM_DEBUG
+   static int prim_count = 0;
+   prim_count++;
+   fprintf(stderr, "Primitive #%d index=%d success=%d\n", prim_count, primitiveIndex, success());
+   fflush(stderr);
+#endif
+
    int flagValue;
 
    /* "source"
@@ -2939,6 +3348,14 @@ bool Interpreter::primitiveResponse()
     }
     initPrimitive();
     dispatchPrimitives();
+    
+#ifdef VM_DEBUG
+    if (prim_count % 10000 == 0 || (primitiveIndex != 0 && !success())) {
+         fprintf(stderr, "Primitive %d %s (count: %d)\n", primitiveIndex, success() ? "succeeded" : "failed", prim_count);
+         fflush(stderr);
+    }
+#endif
+
     return success();
 }
 
@@ -4164,7 +4581,7 @@ std::string Interpreter::classNameOfObject(int objectPointer)
 
 std::string Interpreter::className(int classPointer)
 {
-    if (classPointer == ClassSmallInteger)
+    if (classPointer == memory.ClassSmallInteger)
         return "SmallInteger";
     
     if (classPointer == NilPointer)
@@ -4172,7 +4589,15 @@ std::string Interpreter::className(int classPointer)
     
     int symbol = memory.fetchPointer_ofObject(6, classPointer);
     if (memory.fetchClassOf(symbol) != ClassSymbolPointer)
+    {
+        // Try Metaclass: symbol is the Class object, name is at field 6 of Class object
+        int nameSymbol = memory.fetchPointer_ofObject(6, symbol);
+        if (memory.fetchClassOf(nameSymbol) == ClassSymbolPointer)
+        {
+            return stringFromObject(nameSymbol) + " class";
+        }
         return "<unknown>";
+    }
     
     return stringFromObject(symbol);
 }
@@ -4182,16 +4607,44 @@ std::string Interpreter::className(int classPointer)
 void Interpreter::sendSelector_argumentCount(int selector, int count)
 {
    int newReceiver;
+   messageSelector = selector;
+   argumentCount = count;
+   newReceiver = stackValue(argumentCount);
 
-   /* "source"
-   	messageSelector <- selector.
-   	argumentCount <- count.
-   	newReceiver <- self stackValue: argumentCount.
-   	self sendSelectorToClass: (memory fetchClassOf: newReceiver)
-   */
-    messageSelector = selector;
-    argumentCount = count;
-    newReceiver = stackValue(argumentCount);
+#ifdef VM_DEBUG
+   if (hal->get_image_type() == ImageType::Tektronix) {
+       fprintf(stderr, "Send: sel=%d args=%d recv=%d (class=%d)\n", selector, count, newReceiver, memory.fetchClassOf(newReceiver));
+       for (int i = 0; i < count; i++) {
+           int arg = stackValue(count - 1 - i);
+           fprintf(stderr, "  arg[%d]=%d (class=%d)\n", i, arg, memory.fetchClassOf(arg));
+       }
+       fflush(stderr);
+   }
+#endif
+#ifdef VM_DEBUG
+   if (selector == 1854) {
+       fprintf(stderr, "DEBUG mouseButtons: recv=%d class=%d\n", newReceiver, memory.fetchClassOf(newReceiver));
+       if (memory.hasObject(newReceiver)) {
+           int len = memory.fetchWordLengthOf(newReceiver);
+           for (int i=0; i<len; i++) {
+               int val = memory.fetchPointer_ofObject(i, newReceiver);
+               fprintf(stderr, "  field %d = %d (class %d)\n", i, val, memory.fetchClassOf(val));
+           }
+       }
+       fflush(stderr);
+   }
+   if (selector == 1852) {
+       fprintf(stderr, "DEBUG initState BEFORE: recv=%d class=%d\n", newReceiver, memory.fetchClassOf(newReceiver));
+       if (memory.hasObject(newReceiver)) {
+           int len = memory.fetchWordLengthOf(newReceiver);
+           for (int i=0; i<len; i++) {
+               int val = memory.fetchPointer_ofObject(i, newReceiver);
+               fprintf(stderr, "  field %d = %d (class %d)\n", i, val, memory.fetchClassOf(val));
+           }
+       }
+       fflush(stderr);
+   }
+#endif
     
 #if 0
 #ifdef DEBUGGING_SUPPORT
@@ -4231,6 +4684,7 @@ void Interpreter::sendSelector_argumentCount(int selector, int count)
 #endif
 #endif
 #endif
+
     sendSelectorToClass(memory.fetchClassOf(newReceiver));
 }
 
@@ -4272,7 +4726,10 @@ void Interpreter::findNewMethodInClass(int cls)
         methodCache[hash+2] = newMethod;
         methodCache[hash+3] = primitiveIndex;
     }
-    
+    // if (hal->get_image_type() == ImageType::Tektronix) {
+    //     fprintf(stderr, "  Looked up sel=%d in class=%d -> newMethod=%d prim=%d\n", messageSelector, cls, newMethod, primitiveIndex);
+    //     fflush(stderr);
+    // }
 }
 
 
@@ -4312,8 +4769,7 @@ void Interpreter::activateNewMethod()
         contextSize = 32 + TempFrameStart;
     else
         contextSize = 12 + TempFrameStart;
-    newContext = memory.instantiateClass_withPointers(
-                    ClassMethodContextPointer, contextSize);
+    newContext = allocateMethodContext(contextSize);
     memory.storePointer_ofObject_withValue(SenderIndex,
                     newContext, activeContext);
     storeInstructionPointerValue_inContext(
@@ -4326,6 +4782,8 @@ void Interpreter::activateNewMethod()
                                                  ReceiverIndex,
                                                  newContext);
     pop(argumentCount + 1);
+    // fprintf(stderr, "activateNewMethod: newMethod=%d newContext=%d tempCount=%d initialIP=%d\n", newMethod, newContext, temporaryCountOf(newMethod), initialInstructionPointerOfMethod(newMethod));
+    // fflush(stderr);
     newActiveContext(newContext);
 }
 
@@ -4527,6 +4985,9 @@ void Interpreter::executeNewMethod()
 // dispatchOnThisBytecode
 void Interpreter::dispatchOnThisBytecode()
 {
+   if (currentBytecode >= 208 && currentBytecode <= 255) {
+       // std::cout << "Primitive: " << currentBytecode << std::endl;
+   }
    /* "source"
    	(currentBytecode between: 0 and: 119) ifTrue: [^self stackBytecode].
    	(currentBytecode between: 120 and: 127) ifTrue: [^self returnBytecode].
@@ -4567,23 +5028,106 @@ int Interpreter::fetchByte()
 // cycle
 void Interpreter::cycle()
 {
-   /* "source"
-   	self checkProcessSwitch.
-   	currentBytecode <- self fetchByte.
-   	self dispatchOnThisBytecode
-   */
-    
+    cycle_count++;
+
+    // Collect at a bytecode boundary when free oops run low. The emergency GC
+    // inside allocateChunk can fire mid-primitive while freshly allocated
+    // objects are referenced only from C++ locals, so avoid reaching it.
+    if ((cycle_count & 0x3FF) == 0 && memory.oopsLeft() < 4096)
+    {
+        memory.garbageCollect();
+    }
+
+    {
+        char traceMsg[128];
+        snprintf(traceMsg, sizeof(traceMsg), "Cycle %lld: IP=%d BC=%d ctx=%d sp=%d",
+                 (long long)cycle_count, instructionPointer, currentBytecode, activeContext, stackPointer);
+        recordCycleTrace(traceMsg);
+    }
+
+#ifdef VM_DEBUG
+    if (activeContext == 65660 && cycle_count % 100000 == 0) {
+        int ctx_method = memory.fetchPointer_ofObject(MethodIndex, activeContext);
+        bool isBlock = isBlockContext(activeContext);
+        int home = isBlock ? memory.fetchPointer_ofObject(HomeIndex, activeContext) : activeContext;
+        int home_method = memory.fetchPointer_ofObject(MethodIndex, home);
+        int mem_method = this->method;
+        std::cerr << "DEBUG 65660 BEFORE: ctx_method=" << ctx_method 
+                  << " class=" << memory.fetchClassOf(ctx_method)
+                  << " raw_is_integer=" << (ctx_method & 1)
+                  << " mem_is_integer=" << memory.isIntegerObject(ctx_method)
+                  << " member_method=" << mem_method
+                  << " member_method_class=" << memory.fetchClassOf(mem_method);
+        if (memory.hasObject(mem_method)) {
+            std::cerr << " member_method_len=" << memory.fetchWordLengthOf(mem_method) << " words: ";
+            int m_len = memory.fetchWordLengthOf(mem_method);
+            for (int i=0; i<m_len; i++) {
+                std::cerr << i << ":" << std::hex << memory.fetchWord_ofObject(i, mem_method) << std::dec << " ";
+            }
+        } else {
+            std::cerr << " (invalid object)";
+        }
+        std::cerr << " isBlock=" << isBlock
+                  << " home=" << home
+                  << " home_method=" << home_method
+                  << " IP=" << instructionPointer 
+                  << " SP=" << stackPointer 
+                  << " receiver=" << memory.fetchPointer_ofObject(ReceiverIndex, activeContext)
+                  << " BC=" << currentBytecode
+                  << " words: ";
+        int len = memory.fetchWordLengthOf(ctx_method);
+        for (int i=0; i<len; i++) {
+            std::cerr << i << ":" << std::hex << memory.fetchWord_ofObject(i, ctx_method) << std::dec << " ";
+        }
+        std::cerr << " bytes: ";
+        for (int i=0; i<len*2; i++) {
+            std::cerr << i << ":" << memory.fetchByte_ofObject(i, ctx_method) << " ";
+        }
+        std::cerr << std::endl;
+    }
+
+    if (cycle_count == 21) {
+        std::cerr << "DEBUG BEFORE Cycle 21: activeContext=" << activeContext 
+                  << " (seg=" << memory.segmentBitsOf(activeContext) 
+                  << " loc=" << memory.locationBitsOf(activeContext) << ")"
+                  << " isBlockContext=" << isBlockContext(activeContext)
+                  << " MethodIndexVal=" << memory.fetchPointer_ofObject(MethodIndex, activeContext)
+                  << " SenderVal=" << memory.fetchPointer_ofObject(SenderIndex, activeContext)
+                  << " SenderVal raw=" << memory.fetchWord_ofObject(SenderIndex, activeContext)
+                  << std::endl;
+        std::cerr << "DEBUG Oop 30: seg=" << memory.segmentBitsOf(30)
+                  << " loc=" << memory.locationBitsOf(30)
+                  << " class=" << memory.fetchClassOf(30)
+                  << " len=" << memory.fetchWordLengthOf(30)
+                  << std::endl;
+        std::cerr << "DEBUG Oop 65566: seg=" << memory.segmentBitsOf(65566)
+                  << " loc=" << memory.locationBitsOf(65566)
+                  << std::endl;
+    }
+#endif
+
     checkProcessSwitch();
     currentBytecode = fetchByte();
+
+#ifdef VM_DEBUG
+    if (activeContext == 65660 && cycle_count % 100000 == 0) {
+        std::cerr << "DEBUG 65660 AFTER FETCH: BC=" << currentBytecode << std::endl;
+    }
+
+    if (cycle_count == 21) {
+        std::cerr << "DEBUG Cycle 21: fetched BC=" << currentBytecode << std::endl;
+    }
+#endif
+
     dispatchOnThisBytecode();
 }
-
 
 
 // interpret
 void Interpreter::interpret()
 {
-   /* "source"
+    fprintf(stderr, "Interpreter::interpret() starting...\n"); fflush(stderr);
+    /* "source"
    	[true] whileTrue: [self cycle]
    */
     for(;;)
@@ -4799,10 +5343,12 @@ void Interpreter::stackBytecode()
    		ifTrue: [^self popStackBytecode].
    	currentBytecode = 136
    		ifTrue: [^self duplicateTopBytecode].
-   	currentBytecode = 137
    		ifTrue: [^self pushActiveContextBytecode]
    */
    
+    // fprintf(stderr, "Dispatching BC=%d\n", currentBytecode);
+    // fflush(stderr);
+
     if      (between_and(currentBytecode, 0, 15))    pushReceiverVariableBytecode();
     else if (between_and(currentBytecode, 16, 31))   pushTemporaryVariableBytecode();
     else if (between_and(currentBytecode, 32, 63))   pushLiteralConstantBytecode();
@@ -5255,32 +5801,12 @@ void Interpreter::primitiveNewWithArg()
 {
    int size;
    int cls;
-
-   /* "source"
-   	size <- self positive16BitValueOf: self popStack.
-    self success: size <= 65533. "dbanay: ERROR check max size"
-   	class <- self popStack.
-   	self success: (self isIndexable: class).
-   	self success
-   		ifTrue: [size <- size + (self fixedFieldsOf: class).
-   			(self isPointers: class)
-   				ifTrue: [self push: (memory instantiateClass: class
-   							withPointers: size)]
-   				ifFalse: [(self isWords: class)
-   						ifTrue: [self push: (memory
-   									instantiateClass: class
-   									withWords: size)]
-   						ifFalse: [self push: (memory
-   									instantiateClass: class
-   									withBytes: size)]]]
-   		ifFalse: [self unPop: 2]
-   */
-    
-    size = positive16BitValueOf(popStack());
+        size = positive16BitValueOf(popStack());
     success(size <= 65533);
     
     cls  = popStack();
     success(isIndexable(cls));
+    
     if (success())
     {
         size = size + fixedFieldsOf(cls);
@@ -5481,8 +6007,17 @@ void Interpreter::pushFloat(float f)
 {
     std::uint32_t uint32 = *(std::uint32_t *) &f;
     int objectPointer = memory.instantiateClass_withWords(ClassFloatPointer, 2);
-    memory.storeWord_ofObject_withValue(0, objectPointer, uint32 & 0xffff);
-    memory.storeWord_ofObject_withValue(1, objectPointer, uint32 >> 16);
+    // Tektronix (68K) images store the high-order word of an IEEE single first.
+    if (hal->get_image_type() == ImageType::Tektronix)
+    {
+        memory.storeWord_ofObject_withValue(0, objectPointer, uint32 >> 16);
+        memory.storeWord_ofObject_withValue(1, objectPointer, uint32 & 0xffff);
+    }
+    else
+    {
+        memory.storeWord_ofObject_withValue(0, objectPointer, uint32 & 0xffff);
+        memory.storeWord_ofObject_withValue(1, objectPointer, uint32 >> 16);
+    }
 
     push(objectPointer);
 }
@@ -5497,6 +6032,209 @@ float Interpreter::popFloat()
     }
     
     return std::nanf("");
+}
+
+
+
+void Interpreter::dumpObject(int oop)
+{
+    if (memory.isIntegerObject(oop)) {
+        fprintf(stderr, "Oop %d: SmallInteger %d\n", oop, memory.integerValueOf(oop));
+        return;
+    }
+    if (!memory.hasObject(oop)) {
+        fprintf(stderr, "Oop %d: NO OBJECT\n", oop);
+        return;
+    }
+    int cls = memory.fetchClassOf(oop);
+    int size = memory.fetchWordLengthOf(oop);
+    fprintf(stderr, "Oop %d: Class %d Size %d\n", oop, cls, size);
+    for (int i = 0; i < size && i < 16; i++) {
+        fprintf(stderr, "  [%d] = %d\n", i, memory.fetchPointer_ofObject(i, oop));
+    }
+    fflush(stderr);
+}
+
+int Interpreter::allocateMethodContext(int size)
+{
+    if (size == 18 && !freeSmallContexts.empty())
+    {
+        int ctx = freeSmallContexts.back();
+        freeSmallContexts.pop_back();
+        for (int i = 0; i < size; i++)
+        {
+            memory.storePointer_ofObject_withValue(i, ctx, NilPointer);
+        }
+        escapedContexts.erase(ctx);
+        contextsWithBlocks.erase(ctx);
+        return ctx;
+    }
+    if (size == 38 && !freeLargeContexts.empty())
+    {
+        int ctx = freeLargeContexts.back();
+        freeLargeContexts.pop_back();
+        for (int i = 0; i < size; i++)
+        {
+            memory.storePointer_ofObject_withValue(i, ctx, NilPointer);
+        }
+        escapedContexts.erase(ctx);
+        contextsWithBlocks.erase(ctx);
+        return ctx;
+    }
+    
+    return memory.instantiateClass_withPointers(ClassMethodContextPointer, size);
+}
+
+void Interpreter::recycleMethodContext(int ctx)
+{
+    return; // DEBUG: Disable context recycling
+    if (ctx == NilPointer) return;
+    
+    int cls = memory.fetchClassOf(ctx);
+    if (cls != ClassMethodContextPointer) return;
+    
+    if (escapedContexts.count(ctx) > 0 || contextsWithBlocks.count(ctx) > 0)
+    {
+        return;
+    }
+    
+    int size = memory.fetchWordLengthOf(ctx);
+    if (size == 18)
+    {
+        freeSmallContexts.push_back(ctx);
+    }
+    else if (size == 38)
+    {
+        freeLargeContexts.push_back(ctx);
+    }
+}
+
+int Interpreter::findSelectorForMethod(int method, int cls) {
+    int currentClass = cls;
+    while (currentClass != NilPointer) {
+        int dict = memory.fetchPointer_ofObject(MessageDictionaryIndex, currentClass);
+        if (dict == NilPointer || memory.isIntegerObject(dict)) {
+            currentClass = superclassOf(currentClass);
+            continue;
+        }
+        int dictLen = memory.fetchWordLengthOf(dict);
+        int methodArray = memory.fetchPointer_ofObject(MethodArrayIndex, dict);
+        if (methodArray == NilPointer || memory.isIntegerObject(methodArray)) {
+            currentClass = superclassOf(currentClass);
+            continue;
+        }
+        int arrayLen = memory.fetchWordLengthOf(methodArray);
+        
+        for (int i = SelectorStart; i < dictLen; i++) {
+            int sel = memory.fetchPointer_ofObject(i, dict);
+            int methIdx = i - SelectorStart;
+            if (methIdx >= 0 && methIdx < arrayLen) {
+                int m = memory.fetchPointer_ofObject(methIdx, methodArray);
+                if (m == method) {
+                    return sel;
+                }
+            }
+        }
+        currentClass = superclassOf(currentClass);
+    }
+    return NilPointer;
+}
+
+void Interpreter::printStackTrace() {
+    printCycleTrace();
+    int ctx = activeContext;
+    int depth = 0;
+    fprintf(stderr, "=== Smalltalk Stack Trace ===\n");
+    while (ctx != NilPointer && depth < 150) {
+        int ctxClass = memory.fetchClassOf(ctx);
+        if (ctxClass != ClassMethodContextPointer && ctxClass != ClassBlockContextPointer) {
+            fprintf(stderr, "  [invalid context class %d (%s) at ctx %d]\n", ctxClass, className(ctxClass).c_str(), ctx);
+            break;
+        }
+        bool isBlock = isBlockContext(ctx);
+        int home = isBlock ? memory.fetchPointer_ofObject(HomeIndex, ctx) : ctx;
+        if (home == NilPointer || memory.isIntegerObject(home)) {
+            fprintf(stderr, "  [invalid home context in %sContext %d]\n", isBlock ? "Block" : "Method", ctx);
+            break;
+        }
+        int method = memory.fetchPointer_ofObject(MethodIndex, home);
+        int receiver = memory.fetchPointer_ofObject(ReceiverIndex, home);
+        int cls = memory.fetchClassOf(receiver);
+        
+        int sel = NilPointer;
+        std::string selStr = "unknown";
+        if (!memory.isIntegerObject(method) && memory.hasObject(method)) {
+            sel = findSelectorForMethod(method, cls);
+            if (sel != NilPointer) selStr = selectorName(sel);
+        } else {
+            selStr = "invalid_method_" + std::to_string(method);
+        }
+        
+        fprintf(stderr, "  %s %s>>%s (context=%d, method=%d)\n", 
+                isBlock ? "[] in" : "   ", className(cls).c_str(), selStr.c_str(), ctx, method);
+        
+        // Print receiver and arguments
+        fprintf(stderr, "     rcvr: %d (%s)\n", receiver, className(cls).c_str());
+        
+        if (!memory.isIntegerObject(method) && memory.hasObject(method) && memory.fetchClassOf(method) == ClassCompiledMethod) {
+            int numArgs = argumentCountOf(method);
+            for (int i = 0; i < numArgs; i++) {
+                int arg = memory.fetchPointer_ofObject(TempFrameStart + i, home);
+                int argCls = memory.fetchClassOf(arg);
+                std::string argClsName = className(argCls);
+                fprintf(stderr, "     arg[%d]: %d (%s)", i, arg, argClsName.c_str());
+                if (argClsName == "String") {
+                    std::string strVal = stringFromObject(arg);
+                    fprintf(stderr, " -> \"%s\"", strVal.c_str());
+                }
+                fprintf(stderr, "\n");
+                if (argClsName == "Message") {
+                    int sel = memory.fetchPointer_ofObject(0, arg);
+                    std::string selName = selectorName(sel);
+                    fprintf(stderr, "        Message selector: %s (%d)\n", selName.c_str(), sel);
+                }
+            }
+        } else {
+            fprintf(stderr, "     (cannot print arguments: method is invalid or not CompiledMethod)\n");
+        }
+        
+        ctx = memory.fetchPointer_ofObject(SenderIndex, ctx);
+        depth++;
+    }
+    fprintf(stderr, "=============================\n");
+    fflush(stderr);
+}
+
+void Interpreter::printDisplayDiagnostics() {
+    int displayAssoc = 3826;
+    if (memory.hasObject(displayAssoc)) {
+        int displayObj = memory.fetchPointer_ofObject(1, displayAssoc);
+        int displayClass = memory.fetchClassOf(displayObj);
+        fprintf(stderr, "DIAG: Display = %d (class=%s)\n", displayObj, className(displayClass).c_str());
+        if (!memory.isIntegerObject(displayObj) && memory.fetchWordLengthOf(displayObj) > 0) {
+            int bitsObj = memory.fetchPointer_ofObject(0, displayObj);
+            int bitsClass = memory.fetchClassOf(bitsObj);
+            fprintf(stderr, "DIAG: Display bits = %d (class=%s)\n", bitsObj, className(bitsClass).c_str());
+        }
+    }
+}
+
+void Interpreter::recordCycleTrace(const std::string& msg) {
+    cycleTraceBuffer[cycleTraceBufferIndex] = msg;
+    cycleTraceBufferIndex = (cycleTraceBufferIndex + 1) % CYCLE_TRACE_BUFFER_SIZE;
+    if (cycleTraceBufferIndex == 0) cycleTraceBufferFull = true;
+}
+
+void Interpreter::printCycleTrace() {
+    fprintf(stderr, "=== Last %zu Cycles ===\n", CYCLE_TRACE_BUFFER_SIZE);
+    size_t start = cycleTraceBufferFull ? cycleTraceBufferIndex : 0;
+    size_t count = cycleTraceBufferFull ? CYCLE_TRACE_BUFFER_SIZE : cycleTraceBufferIndex;
+    for (size_t i = 0; i < count; i++) {
+        size_t idx = (start + i) % CYCLE_TRACE_BUFFER_SIZE;
+        fprintf(stderr, "%s\n", cycleTraceBuffer[idx].c_str());
+    }
+    fprintf(stderr, "=======================\n");
+    fflush(stderr);
 }
 
 

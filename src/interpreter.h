@@ -27,12 +27,15 @@
 
 #pragma once
 #include <string>
+#include <iostream>
+#include <unordered_set>
+#include <vector>
 #include "objmemory.h"
 #include "filesystem.h"
 #include "hal.h"
 
 // Add some helpful methods if defined
-//#define DEBUGGING_SUPPORT
+#define DEBUGGING_SUPPORT
 
 // implement optional primitiveNext
 #define IMPLEMENT_PRIMITIVE_NEXT
@@ -48,7 +51,7 @@
 
 class Interpreter
 #ifdef GC_MARK_SWEEP
-    : IGCNotification
+    : public IGCNotification
 #endif
 {
 public:
@@ -69,6 +72,7 @@ public:
     // asynchronousSignal:
     void asynchronousSignal(int aSemaphore);
     
+    ImageType getImageType() { return memory.getImageType(); }
     
     // Debug/testing
     int lastBytecode() { return currentBytecode; }
@@ -82,7 +86,17 @@ public:
         return memory.fetchWord_ofObject(wordIndex, displayBits);
     }
     
- 
+    void printStackTrace();
+    int findSelectorForMethod(int method, int cls);
+    void printDisplayDiagnostics();
+    
+    // Cycle trace buffer
+    static const size_t CYCLE_TRACE_BUFFER_SIZE = 500;
+    std::vector<std::string> cycleTraceBuffer;
+    size_t cycleTraceBufferIndex = 0;
+    bool cycleTraceBufferFull = false;
+    void recordCycleTrace(const std::string& msg);
+    void printCycleTrace();
 
 private:
     
@@ -128,6 +142,7 @@ private:
     
     // subscript:with:storing:
     void subscript_with_storing(int array, int index, int value);
+    void dumpObject(int oop);
     
     
     // --- Contexts ---
@@ -157,12 +172,15 @@ private:
        		ofObject: activeContext
        		withValue: object
        */
-    
+
         stackPointer = stackPointer + 1;
+        if (stackPointer < 0 || stackPointer > 1000) {
+             std::cerr << "push FAIL: stackPointer=" << stackPointer << " activeContext=" << activeContext << std::endl;
+             error("stackPointer bounds error");
+         }
         memory.storePointer_ofObject_withValue(stackPointer, activeContext, object);
-    
-    }
-    
+
+    }    
     // instructionPointerOfContext:
     inline int instructionPointerOfContext(int contextPointer)
     {
@@ -235,12 +253,14 @@ private:
     inline void pop(int number)
     {
        /* "source"
-       	stackPointer <- stackPointer - number
-       */
-    
+        	stackPointer <- stackPointer - number
+        */
+
         stackPointer = stackPointer - number;
-    }
-    
+        if (stackPointer < 0 || stackPointer > 1000) {
+             std::cerr << "pop FAIL: stackPointer=" << stackPointer << " number=" << number << std::endl;
+        }
+    }    
     // storeStackPointerValue:inContext:
     inline void storeStackPointerValue_inContext(int value, int contextPointer)
     {
@@ -369,6 +389,10 @@ private:
        	^memory fetchPointer: SuperclassIndex
        		ofObject: classPointer
        */
+        if (classPointer == 0) {
+            fprintf(stderr, "superclassOf: classPointer=0\n");
+            fflush(stderr);
+        }
         return memory.fetchPointer_ofObject(SuperclassIndex, classPointer);
     }
     
@@ -492,18 +516,26 @@ private:
     // suspendActive
     void suspendActive();
     
-    // activeProcess
-    int activeProcess();
-    
-    // schedulerPointer
     inline int schedulerPointer()
     {
        /* "source"
        	^memory fetchPointer: ValueIndex
        		ofObject: SchedulerAssociationPointer
        */
-        return memory.fetchPointer_ofObject(ValueIndex, SchedulerAssociationPointer);
+        int res = memory.fetchPointer_ofObject(ValueIndex, SchedulerAssociationPointer);
+        // fprintf(stderr, "schedulerPointer: SchedulerAssociationPointer=%d res=%d\n", SchedulerAssociationPointer, res); fflush(stderr);
+        return res;
     }
+
+    inline int activeProcess()
+    {
+        if (newProcessWaiting) return newProcess;
+        int sch = schedulerPointer();
+        int res = memory.fetchPointer_ofObject(ActiveProcessIndex, sch);
+        // fprintf(stderr, "activeProcess: scheduler=%d res=%d\n", sch, res); fflush(stderr);
+        return res;
+    }
+
     
     // addLastLink:toList:
     void addLastLink_toList(int aLink, int aLinkedList);
@@ -567,6 +599,10 @@ private:
     void primitivePosixDirectoryOperation();
     void primitivePosixLastErrorOperation();
     void primitivePosixErrorStringOperation();
+    void primitiveTekSystemCall();
+    void primitiveMemoryAt();
+    void primitiveMemoryAtPut();
+
 
     
     // --- PrimitiveTest ---
@@ -827,7 +863,10 @@ private:
        	^memory fetchPointer: HeaderIndex
        		ofObject: methodPointer
        */
-    
+        if (methodPointer == 0) {
+            printf("headerOf: methodPointer=0\n");
+            fflush(stdout);
+        }
         return memory.fetchPointer_ofObject(HeaderIndex, methodPointer);
     }
     
@@ -850,21 +889,16 @@ private:
     // literalCountOfHeader:
     inline int literalCountOfHeader(int headerPointer)
     {
-       /* "source"
-       	^self extractBits: 9 to: 14
-       		of: headerPointer
-       */
-    
-        return extractBits_to_of(9, 14, headerPointer);
+        if (hal->get_image_type() == ImageType::Xerox)
+            return extractBits_to_of(9, 14, headerPointer);
+        else
+            return extractBits_to_of(9, 14, headerPointer);
     }
     
     // fieldIndexOf:
     inline int fieldIndexOf(int methodPointer)
     {
-       /* "source"
-       	^self extractBits: 3 to: 7
-       		of: (self headerOf: methodPointer)
-       */
+        // CompiledMethod header layout is identical across images (Blue Book).
         return extractBits_to_of(3, 7, headerOf(methodPointer));
     }
     
@@ -885,23 +919,15 @@ private:
     // temporaryCountOf:
     inline int temporaryCountOf(int methodPointer)
     {
-       /* "source"
-       	^self extractBits: 3 to: 7
-       		of: (self headerOf: methodPointer)
-       */
-    
+        // CompiledMethod header layout is identical across images (Blue Book).
         return extractBits_to_of(3, 7, headerOf(methodPointer));
     }
     
     // largeContextFlagOf:
     inline int largeContextFlagOf(int methodPointer)
     {
-       /* "source"
-       	^self extractBits: 8 to: 8
-       		of: (self headerOf: methodPointer)
-       */
-    
-       return extractBits_to_of(8, 8, headerOf(methodPointer));
+        // CompiledMethod header layout is identical across images (Blue Book).
+        return extractBits_to_of(8, 8, headerOf(methodPointer));
     }
     
     // objectPointerCountOf:
@@ -1042,6 +1068,7 @@ private:
        /* "source"
        	self push: activeContext
        */
+        escapedContexts.insert(activeContext);
         push(activeContext);
     }
     
@@ -1294,7 +1321,13 @@ private:
     
     inline float extractFloat(int objectPointer)
     {
-        std::uint32_t uint32 = (memory.fetchWord_ofObject(1, objectPointer) << 16) | memory.fetchWord_ofObject(0, objectPointer);
+        // Tektronix (68K) images store the high-order word of an IEEE single first;
+        // the Xerox image stores the low-order word first.
+        std::uint32_t uint32;
+        if (hal->get_image_type() == ImageType::Tektronix)
+            uint32 = (memory.fetchWord_ofObject(0, objectPointer) << 16) | memory.fetchWord_ofObject(1, objectPointer);
+        else
+            uint32 = (memory.fetchWord_ofObject(1, objectPointer) << 16) | memory.fetchWord_ofObject(0, objectPointer);
         return * (float *) &uint32;
     }
 
@@ -1332,10 +1365,6 @@ private:
     // Class Link
     static const int NextLinkIndex = 0;
     // Class Process
-    static const int SuspendedContextIndex = 1;
-    static const int PriorityIndex = 2;
-    static const int MyListIndex = 3;
-    
     // initializeMessageIndices
     static const int MessageSelectorIndex = 0;
     static const int MessageArgumentsIndex = 1;
@@ -1423,6 +1452,38 @@ private:
     // Any size change will require changes to hash function in findNewMethodInClass
     int methodCache[1024];
     
+    // Special Oops
+    int NilPointer = 2;
+    int FalsePointer = 4;
+    int TruePointer = 6;
+    int SchedulerAssociationPointer = 8;
+    int SmalltalkPointer = 25286;
+    int ClassSmallInteger = 12;
+    int ClassStringPointer = 14;
+    int ClassArrayPointer = 16;
+    int ClassMethodContextPointer = 22;
+    int ClassBlockContextPointer = 24;
+    int ClassPointPointer = 26;
+    int ClassLargePositiveIntegerPointer = 28;
+    int ClassMessagePointer = 32;
+    int ClassCompiledMethod = 34;
+    int ClassCharacterPointer = 40;
+    int ClassSymbolPointer = 56;
+    int ClassFloatPointer = 20;
+    int ClassSemaphorePointer = 38;
+    int ClassDisplayScreenPointer = 834;
+    int ClassUndefinedObject = 25728;
+    int DoesNotUnderstandSelector = 42;
+    int CannotReturnSelector = 44;
+    int MustBeBooleanSelector = 52;
+    int SpecialSelectorsPointer = 49;
+    int CharacterTablePointer = 51;
+
+    // Process indices
+    int SuspendedContextIndex = 1;
+    int PriorityIndex = 2;
+    int MyListIndex = 3;
+
     ObjectMemory memory;
     
     // dbanay - primitiveSignalAtOopsLeftWordsLeft support
@@ -1438,7 +1499,16 @@ private:
     int currentDisplayWidth;
     int currentDisplayHeight;
     int currentCursor;
+    int cycle_count;
     
+    std::unordered_set<int> escapedContexts;
+    std::unordered_set<int> contextsWithBlocks;
+    std::vector<int> freeSmallContexts;
+    std::vector<int> freeLargeContexts;
+
+    int allocateMethodContext(int size);
+    void recycleMethodContext(int ctx);
+
     // Return a std::string for a string or symbol oop
     std::string stringFromObject(int strOop);
     int stringObjectFor(const char *s);
@@ -1450,4 +1520,3 @@ private:
 #endif
     
 };
-

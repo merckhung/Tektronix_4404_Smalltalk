@@ -29,9 +29,16 @@
 #pragma once
 #include <cstdint>
 
+enum class ImageType {
+    Tektronix,
+    Xerox
+};
+
 class IHardwareAbstractionLayer
 {
 public:
+    virtual ImageType get_image_type() = 0;
+
     // Specify the semaphore to signal on input
     virtual void set_input_semaphore(int semaphore) = 0;
     

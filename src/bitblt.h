@@ -88,7 +88,7 @@ public:
         const int WidthInForm = 1;
         const int HeightInForm = 2;
 
-        if (sourceForm != NilPointer)
+        if (sourceForm != memory.NilPointer)
         {
             sourceFormWidth = memory.integerValueOf(memory.fetchWord_ofObject(WidthInForm, sourceForm));
             sourceFormHeight = memory.integerValueOf(memory.fetchWord_ofObject(HeightInForm, sourceForm));
@@ -360,4 +360,3 @@ public:
 
     
 };
-

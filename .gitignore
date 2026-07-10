@@ -29,3 +29,10 @@
 *.exe
 *.out
 *.app
+
+# Bazel
+bazel-*
+MODULE.bazel.lock
+
+# Runtime screenshot artifact
+screenshot.bmp

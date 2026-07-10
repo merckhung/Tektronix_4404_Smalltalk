@@ -1,0 +1,1 @@
+"Discard all existing StrikeFonts and TextStyles, read in medium fonts, and create a new default text style."!FontManager _ StrikeFontManager new.StyleManager _ TextStyleManager new.Compiler evaluate: ((Disk file: '/smalltalk/textStyles/PellucidaDefault10and12.ws') contentsOfEntireFile).StyleManager changeDefaultTextStyle: (StyleManager at: 'Pellucida Default 10 and 12').!

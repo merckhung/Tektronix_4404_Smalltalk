@@ -25,16 +25,19 @@
 //  SOFTWARE.
 //
 
+#pragma once
 #include "filesystem.h"
 #include <string>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <cassert>
+#include <iostream>
 
 #ifndef _WIN32
 #include <unistd.h>
 #include <dirent.h>
+#include <cstring>
 #include <errno.h>
 #else
 #include <windows.h>
@@ -65,6 +68,9 @@ public:
 
 #else
         fd = open(path.c_str(), O_RDWR );
+        if (fd == -1) {
+            std::cerr << "open_file failed: " << path << " error: " << strerror(errno) << std::endl;
+        }
 
 #endif
         return fd;

@@ -26,6 +26,8 @@
 //
 
 #include "bitblt.h"
+#include <iostream>
+
 
 /* "source"
  "initialize a table of bit masks ... p.356"
@@ -142,7 +144,7 @@ void BitBlt::clipRange()
         h = h - ((dy + h) - (clipY + clipHeight));
     }
     
-    if (sourceForm == NilPointer)
+    if (sourceForm == memory.NilPointer)
         return;
     
     if (sx < 0)
@@ -205,12 +207,29 @@ bool BitBlt::copyBits()
         updatedHeight = h;
         computeMasks();
         // Check if source or dest is "bad"
-        if (sourceForm != NilPointer && formWordCount(sourceFormWidth, sourceFormHeight) != sourceBitsWordLength  )
+        if (sourceForm != memory.NilPointer && formWordCount(sourceFormWidth, sourceFormHeight) != sourceBitsWordLength  ) {
+            std::cerr << "BitBlt: source size mismatch! form=" << formWordCount(sourceFormWidth, sourceFormHeight) << " bits=" << sourceBitsWordLength << std::endl;
             return false;
-        if (formWordCount(destFormWidth, destFormHeight) != destBitsWordLength  )
+        }
+        if (formWordCount(destFormWidth, destFormHeight) != destBitsWordLength  ) {
+            std::cerr << "BitBlt: dest size mismatch! form=" << formWordCount(destFormWidth, destFormHeight) << " bits=" << destBitsWordLength 
+                      << " (w=" << destFormWidth << " h=" << destFormHeight << ")" << std::endl;
             return false;
+        }
+#ifdef VM_DEBUG
+        if (destBits == 57858) {
+            std::cerr << "BitBlt to Display: sx=" << sx << " sy=" << sy
+                      << " dx=" << dx << " dy=" << dy
+                      << " w=" << w << " h=" << h
+                      << " rule=" << combinationRule
+                      << " halftone=" << halftoneForm
+                      << " sourceForm=" << sourceForm
+                      << " nWords=" << nWords << std::endl;
+        }
+#endif
 
         checkOverlap();
+
         calculateOffsets();
         copyLoop();
     }
@@ -289,7 +308,7 @@ void BitBlt::copyLoop()
     for(int i = 1; i <=h; i++)
     {
         // here is the vertical loop
-        if (halftoneForm != NilPointer)
+        if (halftoneForm != memory.NilPointer)
         {
             halftoneWord = memory.fetchWord_ofObject((dy & 15), halftoneBits);
             dy = dy + vDir;
@@ -315,7 +334,7 @@ void BitBlt::copyLoop()
         // here is the inner horizontal loop
         for(word = 1; word <= nWords; word++)
         {
-            if (sourceForm != NilPointer)  // if source used
+            if (sourceForm != memory.NilPointer)  // if source used
             {
                 prevWord = prevWord & skewMask;
                 if (word <= sourceRaster && sourceIndex >= 0 && sourceIndex < sourceBitsWordLength)
@@ -376,7 +395,7 @@ void BitBlt::calculateOffsets()
    
     // check if need to preload buffer
     // (i.e., two words of source needed for first word of destination)
-    preload = (sourceForm != NilPointer) && skew != 0 && skew <= (sx & 15);
+    preload = (sourceForm != memory.NilPointer) && skew != 0 && skew <= (sx & 15);
     if (hDir < 0) preload = !preload;
     
     // calculate starting offsets
@@ -434,7 +453,7 @@ void BitBlt::computeMasks()
     destBitsWordLength = memory.fetchWordLengthOf(destBits);
 
     destRaster = (destFormWidth - 1) / 16 + 1;
-    if (sourceForm != NilPointer)
+    if (sourceForm != memory.NilPointer)
     {
         sourceBits = memory.fetchPointer_ofObject(BitsInForm, sourceForm);
         sourceBitsWordLength = memory.fetchWordLengthOf(sourceBits);
@@ -443,7 +462,7 @@ void BitBlt::computeMasks()
     else
         sourceBitsWordLength = 0;
     
-    if (halftoneForm != NilPointer)
+    if (halftoneForm != memory.NilPointer)
     {
        halftoneBits = memory.fetchPointer_ofObject(BitsInForm, halftoneForm);
     }
@@ -571,7 +590,7 @@ int CharacterScanner::scanCharactersFrom_to_in_rightX_stopConditions_displaying(
     {
         ascii = memory.fetchByte_ofObject(lastIndex-1, sourceString);
 
-        if (memory.fetchPointer_ofObject(ascii, stopConditions) != NilPointer)
+        if (memory.fetchPointer_ofObject(ascii, stopConditions) != memory.NilPointer)
         {
             return memory.fetchPointer_ofObject(ascii, stops);
         }
@@ -591,4 +610,3 @@ int CharacterScanner::scanCharactersFrom_to_in_rightX_stopConditions_displaying(
     lastIndex = stopIndex;
     return memory.fetchPointer_ofObject(EndOfRun-1, stops);
 }
-
