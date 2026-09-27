@@ -90,6 +90,29 @@ public:
     int findSelectorForMethod(int method, int cls);
     void printDisplayDiagnostics();
     
+    // Optional observer called after every primitive the interpreter runs
+    // (tools/hal_trace uses it to record the boot). Costs nothing when unset.
+    struct PrimitiveCall {
+        int index;                 // primitive number
+        const char *selector;      // message selector
+        const char *receiverClass; // class of the receiver
+        bool succeeded;
+        long long cycle;           // bytecodes executed so far
+        int receiver;              // receiver oop
+    };
+    typedef void (*PrimitiveObserver)(void *context, const PrimitiveCall &call);
+    void setPrimitiveObserver(PrimitiveObserver observer, void *context)
+    {
+        primitiveObserver = observer;
+        primitiveObserverContext = context;
+    }
+    long long cycles() const { return cycle_count; }
+    // Read-only object access for observers.
+    int fieldOf(int objectPointer, int index) { return memory.fetchPointer_ofObject(index, objectPointer); }
+    int fieldCountOf(int objectPointer) { return memory.fetchWordLengthOf(objectPointer); }
+    // A short printString: 42, nil, true, 'text', #symbol or "a ClassName".
+    std::string printOop(int objectPointer);
+
     // Cycle trace buffer
     static const size_t CYCLE_TRACE_BUFFER_SIZE = 500;
     std::vector<std::string> cycleTraceBuffer;
@@ -1500,6 +1523,8 @@ private:
     int currentDisplayHeight;
     int currentCursor;
     int cycle_count;
+    PrimitiveObserver primitiveObserver = nullptr;
+    void *primitiveObserverContext = nullptr;
     
     std::unordered_set<int> escapedContexts;
     std::unordered_set<int> contextsWithBlocks;

@@ -1,0 +1,211 @@
+# image tektronix/standardImage: 755354 bytes
+# header: object space 295501 words (591002 bytes) at offset 512
+# object table at offset 591514: 40960 entries of 4 bytes
+         0       0.0 vm   Interpreter::init(): load snapshot, calibrate known oops
+         0       0.0 fs   open_file("tektronix/standardImage") -> 3
+         0       0.0 fs   file_size(3) -> 755354
+         0       0.0 fs   seek_to(3, 0)
+         0       0.0 fs   read(3, 8 bytes) -> 8
+         0       0.0 fs   file_size(3) -> 755354
+         0       0.0 fs   seek_to(3, 591514)
+         0       0.0 fs   read(3, 4 bytes) -> 4
+         0       0.0 fs   read(3, 4 bytes) -> 4
+         0       0.0 fs   read(3, 4 bytes) -> 4
+         0       0.0 fs   read(3, 4 bytes) -> 4
+         0       0.0 fs   read(3, 4 bytes) -> 4
+         0       0.0 fs   seek_to(3, 512)
+         0       0.0 fs   seek_to(3, 512)
+         0       0.0 fs   seek_to(3, 516)
+         0       0.0 fs   seek_to(3, 520)
+         0       0.0 fs   file_size(3) -> 755354
+         0       0.0 fs   close_file(3)
+         0       0.0 vm   resume the active process: first bytecode
+        25       0.0 prim #85 Semaphore>>signal
+        40       0.0 prim #79 CompiledMethod class>>newMethod:header:
+        41       0.0 prim #62 CompiledMethod>>size
+        57       0.0 prim #71 Array class>>new:
+        65       0.0 prim #2 SmallInteger>>subtractOrFail:
+       831       0.2 hal  set_display_size(1024, 1024)
+       831       0.2 prim #102 DisplayScreen>>beDisplay
+       832       0.2 host display 1024x1024 saved (832.pbm)
+       848       0.2 prim #70 InputState class>>new
+      1051       0.3 prim #86 Semaphore>>wait
+      1193       0.3 tek  #135 displayInvoke op 28 = TekSystemCall getDisplayState: A0In=a WordArray -> stubbed: true, Outs = 0
+      1193       0.3 prim #83 TekSystemCall>>perform:
+      1203       0.3 prim #60 WordArray>>at:
+      1310       0.3 prim #87 Process>>resume
+      1322       0.3 hal  set_input_semaphore(19264)
+      1322       0.3 prim #93 InputState>>primInputSemaphore:
+      1595       0.4 prim #115 SystemDictionary>>oopsLeft
+      1600       0.4 prim #112 SystemDictionary>>coreLeft
+      1602       0.4 prim #32 LargePositiveInteger>>//  [failed: falls back to Smalltalk code]
+      1612       0.4 prim #27 LargePositiveInteger>>=  [failed: falls back to Smalltalk code]
+      1682       0.4 prim #33 LargePositiveInteger>>quo:  [failed: falls back to Smalltalk code]
+      1902       0.5 prim #61 LargePositiveInteger>>digitAt:put:
+      3699       0.9 prim #116 SystemDictionary>>signal:atOopsLeft:wordsLeft:
+      3909       1.0 tek  #134 systemInvoke op 8 = TekSystemCall cpint:to: arg1=26 arg2=a Semaphore -> stubbed: true, Outs = 0
+      4359       1.1 tek  #134 systemInvoke op 16383 = TekSystemCall invocationArgCountAddress -> stubbed: true, Outs = 0
+      4370       1.1 prim #144 DisplayBitmap>>memoryAt:
+      4372       1.1 prim #9 SmallInteger>>*  [failed: falls back to Smalltalk code]
+      4383       1.1 prim #144 DisplayBitmap>>memoryAt:
+      4422       1.1 prim #144 DisplayBitmap>>memoryAt:
+      4435       1.1 prim #144 DisplayBitmap>>memoryAt:
+      4466       1.1 prim #144 DisplayBitmap>>memoryAt:
+      4556       1.1 prim #75 Symbol>>hash
+      4756       1.2 tek  #134 systemInvoke op 8 = TekSystemCall cpint:to: arg1=6 arg2=a Semaphore -> stubbed: true, Outs = 0
+      5044       1.3 tek  #134 systemInvoke op 35 = TekSystemCall setpr: D0In=10 -> stubbed: true, Outs = 0
+      5130       1.3 tek  #135 displayInvoke op 28 = TekSystemCall getDisplayState: A0In=a WordArray -> stubbed: true, Outs = 0
+      5209       1.3 tek  #135 displayInvoke op 26 = TekSystemCall getViewPort -> stubbed: true, Outs = 0
+      5217       1.3 prim #12 SmallInteger>>//  [failed: falls back to Smalltalk code]
+      5302       1.3 prim #11 SmallInteger>>\\  [failed: falls back to Smalltalk code]
+      5530       1.4 hal  set_cursor_location(0, 0)
+      5530       1.4 prim #91 InputState>>primCursorLocPut:
+      5780       1.4 prim #73 Rectangle>>instVarAt:
+      5788       1.4 prim #74 Rectangle>>instVarAt:put:
+      8063       2.0 hal  display_changed(x=0, y=0, w=1024, h=1024)
+      8063       2.0 prim #96 BitBlt>>copyBits
+      8064       2.0 host display 1024x1024 saved (8064.pbm)
+      8817       2.2 hal  display_changed(x=108, y=235, w=392, h=1)
+      8817       2.2 prim #96 BitBlt>>copyBits
+      8818       2.2 host display 1024x1024 saved (8818.pbm)
+      9028       2.3 hal  display_changed(x=108, y=788, w=392, h=1)
+      9028       2.3 prim #96 BitBlt>>copyBits
+      9239       2.3 hal  display_changed(x=108, y=236, w=1, h=552)
+      9239       2.3 prim #96 BitBlt>>copyBits
+      9450       2.4 hal  display_changed(x=499, y=236, w=1, h=552)
+      9450       2.4 prim #96 BitBlt>>copyBits
+      9666       2.4 hal  display_changed(x=109, y=236, w=390, h=552)
+      9666       2.4 prim #96 BitBlt>>copyBits
+      9667       2.4 host display 1024x1024 saved (9667.pbm)
+     10454       2.6 hal  display_changed(x=110, y=215, w=57, h=20)
+     10692       2.7 hal  display_changed(x=108, y=213, w=61, h=22)
+     10700       2.7 host display 1024x1024 saved (10700.pbm)
+     12447       3.1 prim #81 BlockContext>>value:value:value:
+     12847       3.2 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     13000       3.2 host display 1024x1024 saved (13000.pbm)
+     16587       4.1 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     17000       4.2 host display 1024x1024 saved (17000.pbm)
+     20695       5.2 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     21395       5.3 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     21400       5.3 host display 1024x1024 saved (21400.pbm)
+     24546       6.1 prim #4 SmallInteger>>>  [failed: falls back to Smalltalk code]
+     30441       7.6 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     31000       7.8 host display 1024x1024 saved (31000.pbm)
+     34321       8.6 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     34343       8.6 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     34925       8.7 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     35000       8.8 host display 1024x1024 saved (35000.pbm)
+     40339      10.1 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     41000      10.2 host display 1024x1024 saved (41000.pbm)
+     44147      11.0 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     44169      11.0 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     44804      11.2 prim #103 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+     45000      11.2 host display 1024x1024 saved (45000.pbm)
+     45539      11.4 prim #63 String>>at:
+     45542      11.4 prim #110 Character>>=
+     47056      11.8 prim #110 Character>>=
+     72522      18.1 prim #49 Float>>*  [failed: falls back to Smalltalk code]
+     72559      18.1 prim #40 SmallInteger>>asFloat
+     72609      18.2 prim #18 Float>>@  [failed: falls back to Smalltalk code]
+     72635      18.2 prim #41 Float>>+
+     72668      18.2 prim #1 SmallInteger>>+  [failed: falls back to Smalltalk code]
+     72777      18.2 prim #42 Float>>-  [failed: falls back to Smalltalk code]
+     72887      18.2 prim #46 Float>>>=
+     72892      18.2 prim #51 Float>>truncated
+     86317      21.6 prim #24 LargePositiveInteger>>>  [failed: falls back to Smalltalk code]
+     89283      22.3 hal  set_cursor_image(16x16: 8000 c000 e000 f000 ...)
+     89283      22.3 prim #101 Cursor>>beCursor
+     89599      22.4 hal  get_cursor_location() -> (0, 0)
+     89599      22.4 prim #90 InputSensor>>primMousePt
+     89964      22.5 prim #88 Process>>suspend
+     90000      22.5 host display 1024x1024 saved (90000.pbm)
+     90010      22.5 hal  get_cursor_location() -> (0, 0)
+     90010      22.5 prim #90 InputSensor>>primMousePt
+     90372      22.6 hal  get_cursor_location() -> (0, 0)
+     90372      22.6 prim #90 InputSensor>>primMousePt
+   1200000     300.0 host mouse: button 129 down at (800, 850)
+   1200000     300.0 host input word 0x0000 queued, asynchronousSignal(19264)
+   1200000     300.0 host input word 0x1320 queued, asynchronousSignal(19264)
+   1200000     300.0 host input word 0x2352 queued, asynchronousSignal(19264)
+   1200000     300.0 host input word 0x0000 queued, asynchronousSignal(19264)
+   1200000     300.0 host input word 0x3081 queued, asynchronousSignal(19264)
+   1200003     300.0 hal  next_input_word() -> 0x0000 (type 0, param 0)
+   1200003     300.0 prim #95 InputState>>primInputWord
+   1200062     300.0 hal  next_input_word() -> 0x1320 (type 1, param 800)
+   1200062     300.0 prim #95 InputState>>primInputWord
+   1200087     300.0 hal  next_input_word() -> 0x2352 (type 2, param 850)
+   1200087     300.0 prim #95 InputState>>primInputWord
+   1200116     300.0 hal  next_input_word() -> 0x0000 (type 0, param 0)
+   1200116     300.0 prim #95 InputState>>primInputWord
+   1200175     300.0 hal  next_input_word() -> 0x3081 (type 3, param 129)
+   1200175     300.0 prim #95 InputState>>primInputWord
+   1202833     300.7 prim #96 BitBlt>>copyBits
+   1203066     300.8 hal  display_changed(x=734, y=666, w=136, h=195)
+   1203066     300.8 prim #96 BitBlt>>copyBits
+   1203298     300.8 hal  display_changed(x=733, y=665, w=136, h=195)
+   1203298     300.8 prim #96 BitBlt>>copyBits
+   1203603     300.9 hal  display_changed(x=734, y=666, w=133, h=192)
+   1203603     300.9 prim #96 BitBlt>>copyBits
+   1203804     301.0 hal  display_changed(x=734, y=842, w=133, h=16)
+   1203804     301.0 prim #96 BitBlt>>copyBits
+   1203884     301.0 hal  set_cursor_location(800, 850)
+   1203884     301.0 prim #91 InputState>>primCursorLocPut:
+   1900000     475.0 host display 1024x1024 saved (1900000.pbm)
+# summary: 1905000 bytecodes, 476.2 virtual ms, 172 display updates
+# primitives used: index calls failures first-cycle receiver>>selector
+#     1         4       4      72668 SmallInteger>>+
+#     2        45       3         65 SmallInteger>>subtractOrFail:
+#     4         6       6      24546 SmallInteger>>>
+#     9         5       5       4372 SmallInteger>>*
+#    11         1       1       5302 SmallInteger>>\\
+#    12         2       2       5217 SmallInteger>>//
+#    18         8       8      72609 Float>>@
+#    24         2       2      86317 LargePositiveInteger>>>
+#    27         4       4       1612 LargePositiveInteger>>=
+#    32         1       1       1602 LargePositiveInteger>>//
+#    33         1       1       1682 LargePositiveInteger>>quo:
+#    40        12       0      72559 SmallInteger>>asFloat
+#    41        12       0      72635 Float>>+
+#    42         8       4      72777 Float>>-
+#    46         4       0      72887 Float>>>=
+#    49         8       4      72522 Float>>*
+#    51         4       0      72892 Float>>truncated
+#    60      3473       1       1203 WordArray>>at:
+#    61       459       0       1902 LargePositiveInteger>>digitAt:put:
+#    62       953       0         41 CompiledMethod>>size
+#    63         2       0      45539 String>>at:
+#    70     14705       5        848 InputState class>>new
+#    71        91       0         57 Array class>>new:
+#    73         2       0       5780 Rectangle>>instVarAt:
+#    74         2       0       5788 Rectangle>>instVarAt:put:
+#    75         1       0       4556 Symbol>>hash
+#    79         2       0         40 CompiledMethod class>>newMethod:header:
+#    81        93       0      12447 BlockContext>>value:value:value:
+#    83        65       0       1193 TekSystemCall>>perform:
+#    85       556       0         25 Semaphore>>signal
+#    86       561       0       1051 Semaphore>>wait
+#    87       551       0       1310 Process>>resume
+#    88       547       0      89964 Process>>suspend
+#    90      6149       0      89599 InputSensor>>primMousePt
+#    91         2       0       5530 InputState>>primCursorLocPut:
+#    93         1       0       1322 InputState>>primInputSemaphore:
+#    95         5       0    1200003 InputState>>primInputWord
+#    96       142       0       8063 BitBlt>>copyBits
+#   101         1       0      89283 Cursor>>beCursor
+#   102         1       0        831 DisplayScreen>>beDisplay
+#   103        44       0      12847 DisplayScanner>>scanCharactersFrom:to:in:rightX:stopConditions:displaying:
+#   110         2       0      45542 Character>>=
+#   112         1       0       1600 SystemDictionary>>coreLeft
+#   115         1       0       1595 SystemDictionary>>oopsLeft
+#   116         1       0       3699 SystemDictionary>>signal:atOopsLeft:wordsLeft:
+#   134         4       0       3909 TekSystemCall>>systemInvoke
+#   135         3       0       1193 TekSystemCall>>displayInvoke
+#   144         5       0       4370 DisplayBitmap>>memoryAt:
+# host call counts
+#   cursor_image     1
+#   cursor_loc       2
+#   display_changed  172
+#   file_size        18992
+#   get_cursor       6149
+#   read             97776
+#   seek             56972

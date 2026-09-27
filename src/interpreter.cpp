@@ -3347,7 +3347,20 @@ bool Interpreter::primitiveResponse()
         return false;
     }
     initPrimitive();
-    dispatchPrimitives();
+    if (primitiveObserver)
+    {
+        // Names are resolved before the primitive pops its arguments.
+        const std::string selector = selectorName(messageSelector);
+        const std::string receiverClass = classNameOfObject(stackValue(argumentCount));
+        const int index = primitiveIndex;
+        const int receiver = stackValue(argumentCount);
+        dispatchPrimitives();
+        primitiveObserver(primitiveObserverContext,
+                          {index, selector.c_str(), receiverClass.c_str(), success(), cycle_count,
+                           receiver});
+    }
+    else
+        dispatchPrimitives();
     
 #ifdef VM_DEBUG
     if (prim_count % 10000 == 0 || (primitiveIndex != 0 && !success())) {
@@ -4566,6 +4579,26 @@ int Interpreter::stringObjectFor(const char *s)
     return objectPointer;
 }
 
+
+std::string Interpreter::printOop(int objectPointer)
+{
+    if (memory.isIntegerObject(objectPointer))
+        return std::to_string(memory.integerValueOf(objectPointer));
+    if (objectPointer == NilPointer)
+        return "nil";
+    if (objectPointer == TruePointer)
+        return "true";
+    if (objectPointer == FalsePointer)
+        return "false";
+    const int cls = memory.fetchClassOf(objectPointer);
+    if (cls == ClassStringPointer)
+        return "'" + stringFromObject(objectPointer) + "'";
+    if (cls == ClassSymbolPointer)
+        return "#" + stringFromObject(objectPointer);
+    const std::string name = className(cls);
+    const bool vowel = !name.empty() && std::string("AEIOU").find(name[0]) != std::string::npos;
+    return (vowel ? "an " : "a ") + name;
+}
 
 #ifdef DEBUGGING_SUPPORT
 

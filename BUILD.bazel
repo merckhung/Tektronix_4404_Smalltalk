@@ -36,3 +36,12 @@ cc_binary(
         "-lSDL2",
     ],
 )
+
+# Headless boot recorder: runs the image without a window and logs every
+# primitive, HAL and file-system call (input data for tools/bootviz).
+cc_binary(
+    name = "hal_trace",
+    srcs = ["tools/hal_trace/hal_trace.cc"],
+    copts = ["-std=c++17"],
+    deps = [":smalltalk_lib"],
+)
