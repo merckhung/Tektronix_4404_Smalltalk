@@ -1,0 +1,28 @@
+# Recorded by tools/record_trace.sh from the VM itself (//:hal_trace in the
+# repository root): the Tektronix display at the moments the stages show.
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+package(default_visibility = ["//visibility:public"])
+
+SCREENS = glob(["screens/*.png"])
+
+genrule(
+    name = "screens_embed",
+    srcs = SCREENS,
+    outs = [
+        "screens.h",
+        "screens.cc",
+    ],
+    cmd = "$(location //tools/embed:embed_files) --namespace=bootviz::data " +
+          "--header=$(location screens.h) --source=$(location screens.cc) " +
+          "--include=data/screens.h $(SRCS)",
+    tools = ["//tools/embed:embed_files"],
+)
+
+cc_library(
+    name = "screens",
+    srcs = ["screens.cc"],
+    hdrs = ["screens.h"],
+)
+
+exports_files(["tektronix_trace.txt"])

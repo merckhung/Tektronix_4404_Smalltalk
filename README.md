@@ -33,6 +33,7 @@ sudo apt-get install libsdl2-dev
 
 ```sh
 bazel build //:smalltalk_tek
+bazel build //:hal_trace        # optional: headless boot recorder (see below)
 ```
 
 A traditional `make` build is also available under `linux/` (see
@@ -114,6 +115,41 @@ interpreter handle per image type:
 - **Known-object oops** — the special `nil`/`true`/`false`/scheduler pointers and
   the `SmallInteger` / `CompiledMethod` class oops used by method dispatch and
   garbage collection are set for each image.
+
+## How it boots and calls the host (bootviz)
+
+[`tools/bootviz`](tools/bootviz/README.md) is an animated walk through what
+happens when this VM boots the Tektronix image, built with C++, Skia 2D,
+Vulkan and Bazel. It starts at `main()` and the snapshot loader, shows the
+image resuming the process that saved it in 1986, and follows the calls the
+image makes (`TekSystemCall`, BitBlt, mouse input) through primitives, the HAL
+and SDL. Each stage lights up the parts of the image, VM and host involved and
+animates the calls between them. The trace and display panels replay a real
+boot recorded by `//:hal_trace` (see below).
+
+| | |
+|---|---|
+| ![1. Launch](tools/bootviz/docs/screenshots/01_Launch.png)<br>1. `main()` wires the host to the VM | ![2. Load image](tools/bootviz/docs/screenshots/02_Load_image.png)<br>2. The snapshot loader reads the 1986 image |
+| ![3. Calibrate](tools/bootviz/docs/screenshots/03_Calibrate.png)<br>3. Finding the known objects | ![4. Resume](tools/bootviz/docs/screenshots/04_Resume.png)<br>4. Resuming `snapshotAs:thenQuit:` |
+| ![5. Display on](tools/bootviz/docs/screenshots/05_Display_on.png)<br>5. `beDisplay` opens the SDL window | ![6. TekSystemCall](tools/bootviz/docs/screenshots/06_TekSystemCall.png)<br>6. UniFLEX calls, stubbed by the VM |
+| ![7. Redraw](tools/bootviz/docs/screenshots/07_Redraw.png)<br>7. BitBlt paints the desktop | ![8. Input](tools/bootviz/docs/screenshots/08_Input.png)<br>8. A mouse click becomes a menu |
+
+```sh
+cd tools/bootviz
+bazel run //:bootviz            # needs Vulkan (Mesa lavapipe is enough) and GLFW
+```
+
+### Recording the boot: `hal_trace`
+
+`//:hal_trace` boots an image without a window and logs every primitive, HAL
+and file-system call the image makes, with `TekSystemCall` operations
+decoded. It can also click the mouse and save the display (as PBM) at given
+bytecode counts. Time is virtual, so every run gives the same output.
+
+```sh
+bazel build //:hal_trace
+./bazel-bin/hal_trace -cycles 2000000 -click 300 800 850 -display-at 90000 desktop.pbm
+```
 
 ## Other build systems
 
